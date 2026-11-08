@@ -34,6 +34,11 @@
 | 按键（电源 / 音量上 / 音量下） | **已达成** | `mt6833keys: HB up 1 down 1 power 2`，三键全部产生 HID 事件 |
 | 触摸 | **未达成** | MISO 恒 `0x0`，芯片从不驱动 |
 
+![iOS 16 主屏运行在 OPPO K9x 上](docs/img/ios16-homescreen.jpg)
+
+*2026-11-08 16:48，OPPO K9x 实机。状态栏、小组件、图标、Dock 全部正常——这是从 iPhone X 的
+iOS 16.5 IPSW 里提取的用户态，跑在 MT6833 上。*
+
 这不是模拟器，也不是套壳：真机从 LK 引导链直接跳进 XNU，跑的是从 iPhone X（iPhone10,3）
 iOS 16.5 IPSW 里提取的用户态。安全模型全部关闭（AMFI / Sandbox 放开，Keychain 是桩）。
 
