@@ -1,0 +1,95 @@
+== gpio ==
+== pinctrl dirs ==
+== interrupts ==
+ 38:          0          0          0          0          0          0          0          0   mt-eint   0 Level     10027000.spmi:mt6315@3:mt6315_3_regulator
+ 42:          0          0          0          0          0          0          0          0   mt-eint   4 Edge      11240000.msdc cd
+ 45:          0          0          0          0          0          0          0          0   mt-eint   7 Level     swtp0-eint
+ 47:          0          1          0          0          0          0          1          1   mt-eint   9 Edge      type_c_port0-IRQ
+ 48:         57         58         28         31         49         34         59         53   mt-eint  10 Edge      5-0034
+ 52:          1          0          1          1          1          0          0          3   mt-eint  14 Edge      touchpanel
+ 60:          0          0          0          0          0          0          0          0   mt-eint  22 Edge      fpc_interrupt
+ 93:          0          0          0          0          0          0          0          0   mt-eint  55 Edge      sc8547_charger_irq
+118:          0          0          0          0          0          0          0          0   mt-eint  80 Edge      mtk-kpd-vol-down
+122:          0          0          0          0          0          0          0          0   mt-eint  84 Edge      ESD_TE-eint
+156:          0          0          0          0          0          0          0          0   mt-eint 118 Level     mt6358-irq
+162:          0          0          0          0          0          0          0          0     GICv3 252 Level     mt-pmic-pwrap
+163:          0          0          0          0          0          0          0          0     GICv3 106 Edge      mtk-kpd
+271:         63         59         59         30         24         21         31         43     GICv3 195 Level     11018000.spi4
+294:          0          0          0          0          0          0          0          0  mt6358-irq  48 Level     pwrkey
+295:          0          0          0          0          0          0          0          0  mt6358-irq  50 Level     pwrkey_r
+== clk spi ==
+== regulator vio28/ldo ==
+== ilitek ver ==
+CHIP ID = 7807
+FW version = 116.0.1.0
+FW MP version = 116.0.129.0
+Core version = 1.4.6.5
+Protocol version = 5.6.0
+Driver version = 3.0.4.0.210906
+== ilitek debug ==
+debug level : Enable
+== spi4 driver debugfs ==
+== mtk spi register dump ==
+-- /sys/kernel/debug/mtk_spi*/*
+== dmesg ilitek ==
+[    0.580900] (7)[1:swapper/0]mtk-spi 11018000.spi4: No 'mediatek,kthread-rt' property
+[    1.078502] (7)[1:swapper/0][TP]ILITEK: [INFO](tp_driver_init_ili_7807s, 4125): tp_driver_init_ili_7807s is called
+[    1.078508] (7)[1:swapper/0][TP] tp_ic_name = ilitek,ili7807s 
+[    1.078562] (7)[1:swapper/0][TP] touch judge ic = ilitek,ili7807s,TIANMA
+[    1.078863] (7)[1:swapper/0][TP]ILITEK: [INFO](ilitek7807s_spi_probe, 3895): ilitek spi probe
+[    1.078923] (7)[1:swapper/0][TP]ILITEK: [INFO](ili_core_spi_setup, 2360): spi clock = 10000000
+[    1.078940] (7)[1:swapper/0][TP]ILITEK: [INFO](ili_core_spi_setup, 2376): name = tp_noflash, bus_num = 4,cs = 0, mode = 0, speed = 10000000
+[    1.078947] (7)[1:swapper/0][TP]touchpanel: register_common_touch_device  is called
+[    1.078954] (7)[1:swapper/0][TP]touchpanel: project_id not specified
+[    1.078961] (7)[1:swapper/0][TP]touchpanel: Nvt ts->iovcc_shutdown_support = 0
+[    1.078972] (7)[1:swapper/0][TP]touchpanel: platform_support_project_external_name not specified
+[    1.078978] (7)[1:swapper/0][TP]touchpanel: platform_support_project_external_name not specified
+[    1.078986] (7)[1:swapper/0][TP]touchpanel: platform_support_project_external_name not specified
+[    1.078994] (7)[1:swapper/0][TP]touchpanel: platform_support_project_external_name not specified
+[    1.079002] (7)[1:swapper/0][TP]touchpanel: platform_support_project_external_name not specified
+[    1.079141] (7)[1:swapper/0][TP] touch ic = novatek,ili9882n(ili7807s) tianma
+[    1.079159] (7)[1:swapper/0][TP]touchpanel: panel_data.vid_len not specified
+[    1.079166] (7)[1:swapper/0][TP]touchpanel: report_rate_limit not specified
+[    1.079228] (7)[1:swapper/0][TP]touchpanel: smooth_level not specified
+[    1.079234] (7)[1:swapper/0][TP]touchpanel: vdd_2v8_volt not defined
+[    1.079263] (7)[1:swapper/0][TP]touchpanel: init_parse_dts : irq_gpio = 316, irq_flags = 0x2002, reset_gpio = 317
+[    1.079271] (7)[1:swapper/0][TP]touchpanel: id1_gpio not specified
+[    1.079277] (7)[1:swapper/0][TP]touchpanel: id2_gpio not specified
+[    1.079283] (7)[1:swapper/0][TP]touchpanel: id3_gpio not specified
+[    1.079291] (7)[1:swapper/0][TP]touchpanel: Failed to get the input state pinctrl handle
+[    1.079298] (7)[1:swapper/0][TP]touchpanel: ts->hw_res.enable2v8_gpio not specified
+[    1.079304] (7)[1:swapper/0][TP]touchpanel: ts->hw_res.enable1v8_gpio not specified
+[    1.079311] (7)[1:swapper/0][TP]touchpanel: int-mode not specified
+[    1.079317] (7)[1:swapper/0][TP]touchpanel: No firmware in dts !
+[    1.079324] (7)[1:swapper/0][TP]touchpanel: ts->msecs_to_jiffies_time not specified
+[    1.079331] (7)[1:swapper/0][TP]touchpanel: TX_NUM = 16, RX_NUM = 36 
+[    1.079337] (7)[1:swapper/0][TP]touchpanel: tx-rx-num not set
+[    1.079343] (7)[1:swapper/0][TP]touchpanel: EARSENSE_TX_NUM = 16, EARSENSE_RX_NUM = 18 
+[    1.079353] (7)[1:swapper/0][TP]touchpanel: LCD_WIDTH = 1080, LCD_HEIGHT = 2400, max_x = 4320, max_y = 9600, limit_witdh = 0, limit_height = 216
+[    1.079436] (7)[1:swapper/0][TP]touchpanel: smooth_level_array not specified -22
+[    1.079444] (7)[1:swapper/0][TP]touchpanel: smooth_level_charging_array not specified -22
+[    1.079451] (7)[1:swapper/0][TP]touchpanel: sensitive_level_array not specified -22
+[    1.079458] (7)[1:swapper/0][TP]touchpanel: sensitive_level_charging_array not specified -22
+[    1.079465] (7)[1:swapper/0][TP]touchpanel: stop_filter_set not specified -22
+[    1.079473] (7)[1:swapper/0][TP]touchpanel: error:button-type should be setting in dts!
+[    1.079477] (7)[1:swapper/0][TP]touchpanel: error:button-TRx should be setting in dts!
+[    1.079487] (7)[1:swapper/0][TP]touchpanel: panel is incell!
+[    1.079494] (7)[1:swapper/0][TP]touchpanel: ts->curved_size not specified
+[    1.079500] (7)[1:swapper/0][TP]touchpanel: ts->single_optimized_time not specified
+[    1.079510] (7)[1:swapper/0][TP]touchpanel: long_swipe_judge_distance=1754 swipe_broken_judge_distance=300 jumping_point_judge_distance=60
+[    1.079516] (7)[1:swapper/0][TP]touchpanel: report rate using default.
+[    1.079529] (7)[1:swapper/0][TP]touchpanel: panel coords using default.
+[    1.079536] (7)[1:swapper/0][TP]touchpanel: condition area width using default.
+[    1.079543] (7)[1:swapper/0][TP]touchpanel: eli area width using default.
+[    1.079711] (7)[1:swapper/0]ilitek,ili7807s spi4.0: spi4.0 supply vcc_1v8 not found, using dummy regulator
+[    1.079735] (7)[1:swapper/0]ilitek,ili7807s spi4.0: spi4.0 supply vdd_2v8 not found, using dummy regulator
+[    1.079744] (7)[1:swapper/0][TP]ILITEK: [INFO](ilitek_power_control, 2542): set reset pin low
+[    1.079754] (7)[1:swapper/0][TP]touchpanel: init_input_device is called
+[    1.079842] (7)[1:swapper/0]input: touchpanel as /devices/virtual/input/input2
+[    1.079923] (7)[1:swapper/0]input: touchpanel_kpd as /devices/virtual/input/input3
+[    1.080147] (7)[1:swapper/0][TP]vendor:TIANMA fw:tp/210A0/FW_NF_ILI7807S_TIANMA.img limit:tp/210A0/LIMIT_NF_ILI7807S_TIANMA.img
+[    1.080153] (7)[1:swapper/0][TP]touchpanel: init_panel_config: now vendor is TIANMA.
+[    1.080159] (7)[1:swapper/0][TP]touchpanel: label can not match anyone 
+[    1.080164] (7)[1:swapper/0][TP]ILITEK: [INFO](ilitek_get_vendor, 2882): chip_info->tp_type = 7, panel_data->test_limit_name = tp/210A0/LIMIT_NF_ILI7807S_TIANMA.img, panel_data->fw_name = tp/210A0/FW_NF_ILI7807S_TIANMA.img
+[    1.080175] (7)[1:swapper/0][TP]ILITEK: [INFO](ilitek_get_chip_info, 2553): 
+== DONE ==

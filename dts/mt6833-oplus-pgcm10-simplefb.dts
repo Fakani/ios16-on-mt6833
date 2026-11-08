@@ -1,0 +1,61 @@
+// SPDX-License-Identifier: (GPL-2.0-only OR MIT)
+/*
+ * OPPO PGCM10 (210A0) / MT6833 -- M1 阶段用的 simple-framebuffer 片段
+ *
+ * 用法：作为 overlay 挂在厂商 mt6833.dts 上（#include 进板级 DTS），
+ *       或者单独编译成 dtbo 叠在 boot.img 的 dtb 段之后。
+ *
+ * 关键事实（本机实测，见 docs/附录A-实测档案.md A.7）：
+ *   - LK 已经把面板点亮并持续扫描 mblock-18-framebuffer
+ *   - 该区块物理地址 0x76720000，大小 0x27E0000（4 个缓冲）
+ *   - 宽 1080，高 2400，stride 1088*4 = 4352，格式 a8r8g8b8
+ *   - 该区块 compatible = "mediatek,framebuffer"，且 **没有 no-map**
+ *     -> 内核必须自己把它当 no-map，否则 ioremap_wc() 会拒绝映射
+ *        （改 drivers/of/of_reserved_mem.c，见文件末尾的补丁说明）
+ *
+ * 千万不要在这里写 reserved-memory：LK 启动时会自己插 30 个 mblock-* 节点，
+ * 冲突会走 reserved_memory_conflict_check() 直接挂死。
+ */
+
+/ {
+	chosen {
+		#address-cells = <2>;
+		#size-cells = <2>;
+		ranges;
+
+		/*
+		 * stride * height = 4352 * 2400 = 10,444,800 = 0x9F6000
+		 * 只声明第一个缓冲；后面 3 个留给未来的三缓冲实现。
+		 */
+		framebuffer@76720000 {
+			compatible = "simple-framebuffer";
+			reg = <0 0x76720000 0 (4352 * 2400)>;
+			width = <1080>;
+			height = <2400>;
+			stride = <4352>;
+			format = "a8r8g8b8";
+			/* 面板物理尺寸 69 x 150 mm（来自 OPPO 面板驱动） */
+			width-mm = <69>;
+			height-mm = <150>;
+		};
+	};
+};
+
+/*
+ * 配套的内核改动（M1 必做，否则 simpledrm 拿不到这块内存）：
+ *
+ *   --- a/drivers/of/of_reserved_mem.c
+ *   +++ b/drivers/of/of_reserved_mem.c
+ *   +static bool __init fdt_rmem_nomap(unsigned long node)
+ *   +{
+ *   +        /* MTK 的 LK 把 framebuffer 描述成普通保留区，不写 no-map，
+ *   +         * 内核会把它当可用 RAM，ioremap_wc() 直接拒绝。*/
+ *   +        return of_get_flat_dt_prop(node, "no-map", NULL) ||
+ *   +               of_flat_dt_is_compatible(node, "mediatek,framebuffer");
+ *   +}
+ *
+ *   然后把 early_init_dt_reserve_memory_arch() / __reserved_mem_reserve_reg()
+ *   里的 nomap = ... 全部换成 fdt_rmem_nomap(node)。
+ *
+ * 另：CONFIG_FRAMEBUFFER_CONSOLE 必须 =n（MT6833 上开 fbcon 会 bootloop）。
+ */

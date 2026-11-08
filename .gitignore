@@ -1,0 +1,8 @@
+# 大文件与本地产物
+images/
+assets/
+*.img
+*.bin
+*.log
+.DS_Store
+__pycache__/
