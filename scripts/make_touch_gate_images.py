@@ -31,14 +31,15 @@ def branch(source, target, link=False):
     return struct.pack('<I', (0x94000000 if link else 0x14000000) | ((delta // 4) & 0x3ffffff))
 
 
-def compile_diagnostic(gate, tmp, big_font=0, ice_probe=0, finish_ie=0, reset_readback=0, gpio_probe=0, gpio_rw_test=0, firmware_load=0):
+def compile_diagnostic(gate, tmp, big_font=0, ice_probe=0, finish_ie=0, reset_readback=0, gpio_probe=0, gpio_rw_test=0, firmware_load=0, report_capture=0):
+    require(not report_capture or firmware_load, 'report capture requires live firmware loader')
     require(not firmware_load or (gpio_probe and gpio_rw_test and big_font and not ice_probe),
             'firmware load requires isolated GPIO and dummy gate')
     obj, capture, script, elf, binary = [tmp / x for x in ('diag.o', 'capture.o', 'link.ld', 'diag.elf', 'diag.bin')]
     common = ['clang', '--target=aarch64-linux-gnu', '-ffreestanding', '-nostdlib',
               '-fno-builtin', '-mgeneral-regs-only', '-mstrict-align', '-Oz', '-Wall', '-Wextra', '-Werror',
               '-DSPI_IRQ_ENABLE=' + str(finish_ie), '-DSPI_RESET_READBACK=' + str(reset_readback),
-              '-DBB_RW_TEST=' + str(gpio_rw_test), '-DBB_FW_LOAD=' + str(firmware_load)]
+              '-DBB_RW_TEST=' + str(gpio_rw_test), '-DBB_FW_LOAD=' + str(firmware_load), '-DBB_REPORT_CAPTURE=' + str(report_capture)]
     diagnostic_source = 'touch-gpio-probe.c' if gpio_probe else 'touch-gate-diagnostic.c'
     subprocess.run(common + ['-DGATE_FIX=' + str(gate), '-DBIG_FONT=' + str(big_font),
                              '-DICE_PROBE=' + str(ice_probe), '-c',
@@ -50,6 +51,11 @@ def compile_diagnostic(gate, tmp, big_font=0, ice_probe=0, finish_ie=0, reset_re
         subprocess.run(common + ['-c',str(HERE.parent/'include/touch-firmware-load.c'),
                                  '-o',str(fw_object)],check=True,capture_output=True)
         extras.append(str(fw_object))
+    if report_capture:
+        report_obj = tmp / 'report.o'
+        subprocess.run(common + ['-c',str(HERE.parent/'include/touch-report-capture.c'),
+                                 '-o',str(report_obj)],check=True,capture_output=True)
+        extras.append(str(report_obj))
     if ice_probe:
         ice_obj = tmp / 'ice.o'
         subprocess.run(common + ['-c', str(HERE.parent / 'include/touch-ice-probe.c'),
@@ -99,10 +105,16 @@ SECTIONS {
     return payload, entry, symbols['capture_rx']
 
 
-def repack(baseline, blob):
+def repack(baseline, blob, allowed_tail_ranges=()):
     page, parts, vbmeta, _ = parse_image(baseline)
     old_blob = gzip.decompress(parts[0])
-    require(blob[LOADER_LIMIT:] == old_blob[LOADER_LIMIT:], 'Android / XNU tail changed')
+    require(len(blob)==len(old_blob),'blob length changed')
+    cursor=LOADER_LIMIT
+    for start,end in sorted(allowed_tail_ranges):
+        require(cursor<=start<end<=len(blob),'invalid allowed tail window')
+        require(blob[cursor:start]==old_blob[cursor:start],'change outside allowed kernel window')
+        cursor=end
+    require(blob[cursor:]==old_blob[cursor:],'Android / XNU tail changed')
     for o in (0x10, 0x28, 0x30):
         require(blob[o:o + 8] == old_blob[o:o + 8], 'loader header changed')
     parts[0] = gzip.compress(blob, 9, mtime=0)

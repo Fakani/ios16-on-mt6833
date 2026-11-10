@@ -40,7 +40,7 @@ def firmware_package(raw):
     return bytes(data),package,manifest
 
 
-def build_firmware_image(baseline,firmware):
+def build_firmware_image(baseline,firmware,report_capture=0):
     require(sha256(baseline)==BASE_SHA256,'baseline SHA256 mismatch')
     fw_data,package,fw_manifest=firmware_package(firmware)
     ack2,_=build_image(baseline)
@@ -54,7 +54,7 @@ def build_firmware_image(baseline,firmware):
     require(INJECTION_LIMIT<=DATA_OFFSET and DATA_OFFSET+len(fw_data)<=PACKAGE_OFFSET and
             PACKAGE_OFFSET+len(package)<=LOADER_LIMIT,'firmware regions overlap')
     with tempfile.TemporaryDirectory() as tmp:
-        code,entry,hook=compile_diagnostic(0,Path(tmp),big_font=1,gpio_probe=1,gpio_rw_test=1,firmware_load=1)
+        code,entry,hook=compile_diagnostic(0,Path(tmp),big_font=1,gpio_probe=1,gpio_rw_test=1,firmware_load=1,report_capture=report_capture)
     blob[INJECTION:INJECTION+len(code)]=code
     blob[DATA_OFFSET:DATA_OFFSET+len(fw_data)]=fw_data
     blob[PACKAGE_OFFSET:PACKAGE_OFFSET+len(package)]=package
@@ -69,7 +69,8 @@ def build_firmware_image(baseline,firmware):
               'package_offset':hex(PACKAGE_OFFSET),'package_bytes':len(package),
               'blocks':[dict(zip(('target','size','offset','crc32'),d))for d in
                         (struct.unpack_from('<4I',package,32+i*16)for i in range(3))],
-              'global_deadline_ms':60000,'verification':'full byte readback plus independent software CRC',
+              'global_deadline_ms':60000,'report_capture':bool(report_capture),
+              'capture_window_ms':15000 if report_capture else 0,'verification':'full byte readback plus independent software CRC',
               'dma_crc_used':False,'flash_writes':False,'touchscreen':0,
               'android_xnu_tail_identical':True,'hardware_result':'NOT TESTED'}
     return result,manifest
@@ -78,9 +79,10 @@ def build_firmware_image(baseline,firmware):
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('baseline',type=Path);p.add_argument('firmware',type=Path);p.add_argument('output',type=Path)
+    p.add_argument('--capture-reports',action='store_true')
     a=p.parse_args();manifest_path=a.output.with_suffix('.manifest.json')
     require(not a.output.exists() and not manifest_path.exists(),'output exists')
-    result,manifest=build_firmware_image(a.baseline.read_bytes(),a.firmware.read_bytes())
+    result,manifest=build_firmware_image(a.baseline.read_bytes(),a.firmware.read_bytes(),int(a.capture_reports))
     a.output.write_bytes(result);manifest_path.write_text(json.dumps(manifest,indent=2)+'\n')
     print(json.dumps(manifest,indent=2))
 

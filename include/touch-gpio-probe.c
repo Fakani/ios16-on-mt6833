@@ -9,6 +9,12 @@
 #ifndef BB_FW_LOAD
 #define BB_FW_LOAD 0
 #endif
+#ifndef BB_REPORT_CAPTURE
+#define BB_REPORT_CAPTURE 0
+#endif
+#if BB_REPORT_CAPTURE
+#include "touch-report-capture.h"
+#endif
 #if BB_FW_LOAD
 #include "touch-firmware-package.h"
 #if !BB_RW_TEST
@@ -75,7 +81,7 @@ static void level(unsigned pin, int high)
 
 int touch_gpio_transfer(const uint8_t *tx, uint8_t *rx, unsigned n)
 {
-    if (!n || n > (BB_FW_LOAD ? 133u : 16u) || (BB_FW_LOAD && bb_frames>=2200u)) return 0;
+    if (!n || n > (BB_FW_LOAD ? 133u : 16u) || (BB_FW_LOAD && bb_frames>=(BB_REPORT_CAPTURE?4096u:2200u))) return 0;
     level(97, 0);
     level(98, 0);
     for (unsigned i = 0; i < n; i++) {
@@ -195,7 +201,12 @@ static void run_gpio_probe(void)
     if(bb_flags & 0x100u) dummy_check();
 #endif
 #if BB_FW_LOAD
-    if(touch_fw_load()) bb_flags |= 0x40u; /* core verified and ICE exited by loader */
+    if(touch_fw_load()) {
+        bb_flags |= 0x40u; /* core verified and ICE exited by loader */
+#if BB_REPORT_CAPTURE
+        touch_report_capture();
+#endif
+    }
     goto restore; /* failed loads deliberately leave MCU stopped; restore pads only */
 #endif
 close_ice:
@@ -233,13 +244,49 @@ void touch_fw_progress(uint32_t phase,uint32_t block,uint32_t bytes)
 }
 #endif
 
+#if BB_REPORT_CAPTURE
+void touch_report_prompt(void)
+{
+    uint32_t x=console_state.x,y=console_state.y,top=console_state.top,scale=console_state.scale;
+    console_state.scale=4;console_state.x=console_state.y=console_state.top=0;
+    output_char('\n');text("TOUCH NOW - 15 SEC\n");
+    text("Slide corner to corner\n");text("Then lift and take photo\n");
+    console_state.x=x;console_state.y=y;console_state.top=top;console_state.scale=scale;
+}
+static void packet_hex(unsigned index,char tag)
+{
+    static const char digits[]="0123456789abcdef";
+    for(unsigned row=0;row<6;row++){
+        output_char(tag);output_char('0'+row);output_char(':');
+        for(unsigned i=0;i<12;i++){uint8_t v=rp_packets[index][row*12+i];output_char(digits[v>>4]);output_char(digits[v&15]);}
+        output_char('\n');
+    }
+}
+static void show_report(void)
+{
+    unsigned a=rp_count>2?1:0,b=rp_count>2?2:(rp_count>1?1:0);
+    text("v80 VALID - BIG\n");field("FW phase/error ",(fw_phase<<16)|fw_error);
+    field("reads/samples ",(rp_reads<<16)|rp_count);field("RP status ",rp_status);
+    field("valid43/72 ",(rp_valid43<<16)|rp_valid72);
+    field("last ACK/ID ",(rp_last_ack<<8)|rp_last_header);
+    field("mask0 ",rp_masks[0]);field("mask1 ",rp_masks[1]);field("mask2 ",rp_masks[2]);
+    field("max12 x/y ",rp_max12);field("max16 x/y ",rp_max16);
+    field("A/B index ",(a<<8)|b);field("IRQ in/out ",(rp_irq_before<<8)|rp_irq_after);
+    packet_hex(a,'A');packet_hex(b,'B');
+}
+#endif
+
 void touch_gate_diagnostic(void)
 {
     original_probe();
     run_gpio_probe();
     uint32_t x = console_state.x, y = console_state.y, top = console_state.top, scale = console_state.scale;
     console_state.scale = 4; console_state.x = console_state.y = console_state.top = 0;
-    output_char('\n'); text(BB_FW_LOAD?"v78 FW - BIG\n":(BB_RW_TEST?"v77 RW - BIG\n":"v76 GPIO - BIG\n"));
+    output_char('\n');
+#if BB_REPORT_CAPTURE
+    if(fw_phase==7){show_report();goto display_done;}
+#endif
+    text(BB_FW_LOAD?"v78 FW - BIG\n":(BB_RW_TEST?"v77 RW - BIG\n":"v76 GPIO - BIG\n"));
     field("FIFO RX32 ", diag_rx);
     field("BB ACK32 ", bb_ack);
     field("BB PID0 ", bb_pid[0]); field("BB PID1 ", bb_pid[1]); field("BB PID2 ", bb_pid[2]);
@@ -260,5 +307,11 @@ void touch_gate_diagnostic(void)
     field("MODE1 in ", bb_modes_before[0]); field("MODE1 out ", bb_modes_after[0]);
     field("MODE12 in ", bb_modes_before[1]); field("MODE12 out ", bb_modes_after[1]);
 #endif
+#if BB_REPORT_CAPTURE
+display_done:
+#endif
     console_state.x = x; console_state.y = y; console_state.top = top; console_state.scale = scale;
+#if BB_REPORT_CAPTURE
+    if(fw_phase==7){console_state.x=0;console_state.y=2200;}
+#endif
 }
