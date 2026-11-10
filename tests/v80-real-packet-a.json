@@ -1,0 +1,13 @@
+{
+  "source_photo": "logs/v80-user-photo.jpg",
+  "note": "Transcribed A0-A5; checksum independently zero",
+  "packet_hex": "5b0048f900e701410affffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff121200022009e20000000000000000002e",
+  "contact0": {
+    "x": 231,
+    "y": 321
+  },
+  "normalized0": {
+    "x": 3505,
+    "y": 2191
+  }
+}
