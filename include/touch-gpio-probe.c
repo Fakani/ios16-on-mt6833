@@ -3,6 +3,12 @@
  * Does not trust SPI controller FIFO/completion registers and sends no firmware.
  */
 #include <stdint.h>
+#ifndef BB_RW_TEST
+#define BB_RW_TEST 0
+#endif
+#if BB_RW_TEST
+volatile uint32_t bb_rw_before=0xffffffffu, bb_rw_expected=0, bb_rw_read=0xffffffffu, bb_rw_after=0xffffffffu;
+#endif
 
 extern void original_probe(void);
 extern void output_char(uint32_t c);
@@ -58,7 +64,7 @@ static void level(unsigned pin, int high)
 
 static int transfer(const uint8_t *tx, uint8_t *rx, unsigned n)
 {
-    if (!n || n > 8u) return 0;
+    if (!n || n > 16u) return 0;
     level(97, 0);
     level(98, 0);
     for (unsigned i = 0; i < n; i++) {
@@ -82,6 +88,44 @@ timeout:
     return 0;
 }
 
+#if BB_RW_TEST
+/* Vendor ili_ic_dummy_check uses WDT9_DUMMY2 = 0x51024 as a scratch word.
+ * Unlike the vendor check, preserve and verify its original value afterward. */
+static int read_dummy(uint32_t *value)
+{
+    const uint8_t address[] = {0x82,0x25,0x24,0x10,0x05};
+    const uint8_t read[] = {0x83,0,0,0,0};
+    uint8_t rx[5];
+    if (!transfer(address,0,5) || !transfer(read,rx,5)) return 0;
+    *value=(uint32_t)rx[1]|((uint32_t)rx[2]<<8)|((uint32_t)rx[3]<<16)|((uint32_t)rx[4]<<24);
+    return 1;
+}
+static int write_dummy(uint32_t value)
+{
+    uint8_t tx[9] = {0x82,0x25,0x24,0x10,0x05,0,0,0,0};
+    for(unsigned i=0;i<4;i++) tx[5+i]=(uint8_t)(value>>(8*i));
+    return transfer(tx,0,9);
+}
+static void dummy_check(void)
+{
+    uint32_t before, observed;
+    bb_rw_before=bb_rw_read=bb_rw_after=0xffffffffu;
+    if (!read_dummy(&before)) return;
+    bb_rw_before=before; bb_flags|=0x2000u;
+    uint32_t pattern=before==0xa55a5aa5u?0x5aa5a55au:0xa55a5aa5u;
+    bb_rw_expected=pattern;
+    if (write_dummy(pattern) && read_dummy(&observed)) {
+        bb_rw_read=observed;
+        if(observed==pattern) bb_flags|=0x800u;
+    }
+    /* Even a failed write could have clocked a partial payload; restore once. */
+    if(write_dummy(before) && read_dummy(&observed)) {
+        bb_rw_after=observed;
+        if(observed==before) bb_flags|=0x1000u;
+    }
+}
+#endif
+
 static void restore_bits(uint64_t reg, uint32_t saved, uint32_t mask)
 {
     bb_write(reg + 4, saved & mask);
@@ -100,6 +144,7 @@ static void run_gpio_probe(void)
     uint32_t ies = bb_read(MI_IES);
     bb_ies[0] = ies;
     bb_write(MI_IES + 4, MI_IES_BIT);
+    barrier();
     bb_ies[1] = bb_read(MI_IES);
     bb_ack = bb_idle = 0xffffffffu; bb_flags = bb_clocks = bb_frames = 0;
     for (unsigned i = 0; i < 3; i++) bb_pid[i] = 0xffffffffu;
@@ -108,6 +153,7 @@ static void run_gpio_probe(void)
     level(98, 1); level(97, 0); level(13, 0);
     bb_write(GPIO + 4, MO); bb_write(GPIO + 8, MI);
     bb_write(GPIO + 0x34u, CLK | CS);
+    barrier();
     bb_write(GPIO + 0x310u, m1 & ~MODE1_MASK);
     bb_write(GPIO + 0x3c0u, m12 & ~MODE12_MASK);
     barrier();
@@ -134,6 +180,9 @@ static void run_gpio_probe(void)
         bb_flags |= 8u << i;
     }
     if (bb_pid[0] == bb_pid[1] && bb_pid[1] == bb_pid[2] && (bb_pid[0] >> 16) == 0x7807u) bb_flags |= 0x100u;
+#if BB_RW_TEST
+    if(bb_flags & 0x100u) dummy_check();
+#endif
 close_ice:
     if (transfer(close, 0, 5)) bb_flags |= 0x40u;
 restore:
@@ -142,6 +191,7 @@ restore:
      * latent GPIO directions/output latches; unrelated pins remain untouched. */
     bb_write(GPIO + 0x310u, (bb_read(GPIO + 0x310u) & ~MODE1_MASK) | (m1 & MODE1_MASK));
     bb_write(GPIO + 0x3c0u, (bb_read(GPIO + 0x3c0u) & ~MODE12_MASK) | (m12 & MODE12_MASK));
+    barrier();
     restore_bits(GPIO, dir0, MI | MO); restore_bits(GPIO + 0x30u, dir3, CLK | CS);
     restore_bits(GPIO + 0x100u, out0, MO); restore_bits(GPIO + 0x130u, out3, CLK | CS);
     bb_write(MI_IES + ((ies & MI_IES_BIT) ? 4u : 8u), MI_IES_BIT);
@@ -163,11 +213,15 @@ void touch_gate_diagnostic(void)
     run_gpio_probe();
     uint32_t x = console_state.x, y = console_state.y, top = console_state.top, scale = console_state.scale;
     console_state.scale = 4; console_state.x = console_state.y = console_state.top = 0;
-    output_char('\n'); text("v76 GPIO - BIG\n");
+    output_char('\n'); text(BB_RW_TEST?"v77 RW - BIG\n":"v76 GPIO - BIG\n");
     field("FIFO RX32 ", diag_rx);
     field("BB ACK32 ", bb_ack);
     field("BB PID0 ", bb_pid[0]); field("BB PID1 ", bb_pid[1]); field("BB PID2 ", bb_pid[2]);
     field("BB flags ", bb_flags); field("BB bitsteps ", bb_clocks); field("BB frames ", bb_frames);
+#if BB_RW_TEST
+    field("RW before ",bb_rw_before); field("RW wanted ",bb_rw_expected);
+    field("RW read ",bb_rw_read); field("RW restored ",bb_rw_after);
+#endif
     field("MI idle ", bb_idle);
     field("MI IES in ", bb_ies[0]); field("MI IES active ", bb_ies[1]); field("MI IES out ", bb_ies[2]);
     field("MODE1 in ", bb_modes_before[0]); field("MODE1 out ", bb_modes_after[0]);
