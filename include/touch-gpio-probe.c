@@ -6,6 +6,15 @@
 #ifndef BB_RW_TEST
 #define BB_RW_TEST 0
 #endif
+#ifndef BB_FW_LOAD
+#define BB_FW_LOAD 0
+#endif
+#if BB_FW_LOAD
+#include "touch-firmware-package.h"
+#if !BB_RW_TEST
+#error Firmware loading requires reversible dummy check
+#endif
+#endif
 #if BB_RW_TEST
 volatile uint32_t bb_rw_before=0xffffffffu, bb_rw_expected=0, bb_rw_read=0xffffffffu, bb_rw_after=0xffffffffu;
 #endif
@@ -44,6 +53,8 @@ static int bb_delay(unsigned us)
 }
 #endif
 
+int touch_gpio_wait(unsigned us) { return bb_delay(us); }
+
 #define GPIO 0x10005000u
 #define MI (1u << 12)
 #define MO (1u << 13)
@@ -62,9 +73,9 @@ static void level(unsigned pin, int high)
     barrier();
 }
 
-static int transfer(const uint8_t *tx, uint8_t *rx, unsigned n)
+int touch_gpio_transfer(const uint8_t *tx, uint8_t *rx, unsigned n)
 {
-    if (!n || n > 16u) return 0;
+    if (!n || n > (BB_FW_LOAD ? 133u : 16u) || (BB_FW_LOAD && bb_frames>=2200u)) return 0;
     level(97, 0);
     level(98, 0);
     for (unsigned i = 0; i < n; i++) {
@@ -96,7 +107,7 @@ static int read_dummy(uint32_t *value)
     const uint8_t address[] = {0x82,0x25,0x24,0x10,0x05};
     const uint8_t read[] = {0x83,0,0,0,0};
     uint8_t rx[5];
-    if (!transfer(address,0,5) || !transfer(read,rx,5)) return 0;
+    if (!touch_gpio_transfer(address,0,5) || !touch_gpio_transfer(read,rx,5)) return 0;
     *value=(uint32_t)rx[1]|((uint32_t)rx[2]<<8)|((uint32_t)rx[3]<<16)|((uint32_t)rx[4]<<24);
     return 1;
 }
@@ -104,7 +115,7 @@ static int write_dummy(uint32_t value)
 {
     uint8_t tx[9] = {0x82,0x25,0x24,0x10,0x05,0,0,0,0};
     for(unsigned i=0;i<4;i++) tx[5+i]=(uint8_t)(value>>(8*i));
-    return transfer(tx,0,9);
+    return touch_gpio_transfer(tx,0,9);
 }
 static void dummy_check(void)
 {
@@ -163,19 +174,19 @@ static void run_gpio_probe(void)
     bb_flags |= 1u;
     if (!bb_delay(1000)) goto restore;
     bb_idle = (bb_read(GPIO + 0x200u) >> 12) & 1u;
-    if (!transfer(ack, rx, 2)) goto restore;
+    if (!touch_gpio_transfer(ack, rx, 2)) goto restore;
     bb_ack = (uint32_t)rx[0] | ((uint32_t)rx[1] << 8);
     bb_flags |= 2u;
     if (rx[1] == 0xa3) bb_flags |= 0x400u;
-    if (!transfer(open, 0, 5)) {
+    if (!touch_gpio_transfer(open, 0, 5)) {
         /* A failed gap timer may follow a fully clocked ICE-open frame.
          * Attempt one bounded close before restoring pads in that case. */
-        if (bb_frames >= 2u && transfer(close, 0, 5)) bb_flags |= 0x40u;
+        if (bb_frames >= 2u && touch_gpio_transfer(close, 0, 5)) bb_flags |= 0x40u;
         goto restore;
     }
     bb_flags |= 4u;
     for (unsigned i = 0; i < 3; i++) {
-        if (!transfer(address, 0, 5) || !transfer(read, rx, 5)) goto close_ice;
+        if (!touch_gpio_transfer(address, 0, 5) || !touch_gpio_transfer(read, rx, 5)) goto close_ice;
         bb_pid[i] = (uint32_t)rx[1] | ((uint32_t)rx[2] << 8) | ((uint32_t)rx[3] << 16) | ((uint32_t)rx[4] << 24);
         bb_flags |= 8u << i;
     }
@@ -183,8 +194,12 @@ static void run_gpio_probe(void)
 #if BB_RW_TEST
     if(bb_flags & 0x100u) dummy_check();
 #endif
+#if BB_FW_LOAD
+    if(touch_fw_load()) bb_flags |= 0x40u; /* core verified and ICE exited by loader */
+    goto restore; /* failed loads deliberately leave MCU stopped; restore pads only */
+#endif
 close_ice:
-    if (transfer(close, 0, 5)) bb_flags |= 0x40u;
+    if (touch_gpio_transfer(close, 0, 5)) bb_flags |= 0x40u;
 restore:
     level(97, 0); level(98, 1);
     /* Reattach the original SPI functions while CS is high, then restore
@@ -207,17 +222,35 @@ restore:
 static void text(const char *s) { while (*s) output_char((unsigned char)*s++); }
 static void field(const char *name, uint32_t n) { text(name); output_hex(n); output_char('\n'); }
 
+#if BB_FW_LOAD
+void touch_fw_progress(uint32_t phase,uint32_t block,uint32_t bytes)
+{
+    uint32_t x=console_state.x,y=console_state.y,top=console_state.top,scale=console_state.scale;
+    console_state.scale=4;console_state.x=console_state.y=console_state.top=0;
+    output_char('\n');text("v78 FW working\n");
+    field("phase ",phase);field("block ",block);field("bytes ",bytes);
+    console_state.x=x;console_state.y=y;console_state.top=top;console_state.scale=scale;
+}
+#endif
+
 void touch_gate_diagnostic(void)
 {
     original_probe();
     run_gpio_probe();
     uint32_t x = console_state.x, y = console_state.y, top = console_state.top, scale = console_state.scale;
     console_state.scale = 4; console_state.x = console_state.y = console_state.top = 0;
-    output_char('\n'); text(BB_RW_TEST?"v77 RW - BIG\n":"v76 GPIO - BIG\n");
+    output_char('\n'); text(BB_FW_LOAD?"v78 FW - BIG\n":(BB_RW_TEST?"v77 RW - BIG\n":"v76 GPIO - BIG\n"));
     field("FIFO RX32 ", diag_rx);
     field("BB ACK32 ", bb_ack);
     field("BB PID0 ", bb_pid[0]); field("BB PID1 ", bb_pid[1]); field("BB PID2 ", bb_pid[2]);
     field("BB flags ", bb_flags); field("BB bitsteps ", bb_clocks); field("BB frames ", bb_frames);
+#if BB_FW_LOAD
+    field("FW phase ",fw_phase);field("FW error ",fw_error);field("FW verified ",fw_verified);
+    field("FW written ",fw_bytes_written);field("FW readback ",fw_bytes_verified);
+    field("CRC AP ",fw_crc_read[0]);field("CRC DATA ",fw_crc_read[1]);field("CRC TUN ",fw_crc_read[2]);
+    field("FW ack ",fw_ack);field("FW reply ",fw_reply);field("FW TP x ",fw_tp_x);field("FW TP y ",fw_tp_y);
+    field("FW ms ",fw_elapsed_ms);
+#else
 #if BB_RW_TEST
     field("RW before ",bb_rw_before); field("RW wanted ",bb_rw_expected);
     field("RW read ",bb_rw_read); field("RW restored ",bb_rw_after);
@@ -226,5 +259,6 @@ void touch_gate_diagnostic(void)
     field("MI IES in ", bb_ies[0]); field("MI IES active ", bb_ies[1]); field("MI IES out ", bb_ies[2]);
     field("MODE1 in ", bb_modes_before[0]); field("MODE1 out ", bb_modes_after[0]);
     field("MODE12 in ", bb_modes_before[1]); field("MODE12 out ", bb_modes_after[1]);
+#endif
     console_state.x = x; console_state.y = y; console_state.top = top; console_state.scale = scale;
 }

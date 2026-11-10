@@ -31,18 +31,25 @@ def branch(source, target, link=False):
     return struct.pack('<I', (0x94000000 if link else 0x14000000) | ((delta // 4) & 0x3ffffff))
 
 
-def compile_diagnostic(gate, tmp, big_font=0, ice_probe=0, finish_ie=0, reset_readback=0, gpio_probe=0, gpio_rw_test=0):
+def compile_diagnostic(gate, tmp, big_font=0, ice_probe=0, finish_ie=0, reset_readback=0, gpio_probe=0, gpio_rw_test=0, firmware_load=0):
+    require(not firmware_load or (gpio_probe and gpio_rw_test and big_font and not ice_probe),
+            'firmware load requires isolated GPIO and dummy gate')
     obj, capture, script, elf, binary = [tmp / x for x in ('diag.o', 'capture.o', 'link.ld', 'diag.elf', 'diag.bin')]
     common = ['clang', '--target=aarch64-linux-gnu', '-ffreestanding', '-nostdlib',
               '-fno-builtin', '-mgeneral-regs-only', '-mstrict-align', '-Oz', '-Wall', '-Wextra', '-Werror',
               '-DSPI_IRQ_ENABLE=' + str(finish_ie), '-DSPI_RESET_READBACK=' + str(reset_readback),
-              '-DBB_RW_TEST=' + str(gpio_rw_test)]
+              '-DBB_RW_TEST=' + str(gpio_rw_test), '-DBB_FW_LOAD=' + str(firmware_load)]
     diagnostic_source = 'touch-gpio-probe.c' if gpio_probe else 'touch-gate-diagnostic.c'
     subprocess.run(common + ['-DGATE_FIX=' + str(gate), '-DBIG_FONT=' + str(big_font),
                              '-DICE_PROBE=' + str(ice_probe), '-c',
                              str(HERE.parent / 'include' / diagnostic_source), '-o', str(obj)],
                    check=True, capture_output=True)
     extras = []
+    if firmware_load:
+        fw_object = tmp / 'firmware.o'
+        subprocess.run(common + ['-c',str(HERE.parent/'include/touch-firmware-load.c'),
+                                 '-o',str(fw_object)],check=True,capture_output=True)
+        extras.append(str(fw_object))
     if ice_probe:
         ice_obj = tmp / 'ice.o'
         subprocess.run(common + ['-c', str(HERE.parent / 'include/touch-ice-probe.c'),
@@ -60,7 +67,8 @@ SECTIONS {
 ''')
     definitions = ['--defsym=original_probe=0x400878b0', '--defsym=output_char=0x40085dd8',
                    '--defsym=output_hex=0x40081168', '--defsym=probe_rx_continue=0x40087ad0',
-                   '--defsym=console_state=0x4008c000']
+                   '--defsym=console_state=0x4008c000',
+                   '--defsym=fw_package=0x400bf000','--defsym=fw_data=0x400a4000']
     command = ['ld.lld', '-T', str(script)] + definitions + [str(obj), str(capture)] + extras
     subprocess.run(command + ['-o', str(elf)], check=True, capture_output=True)
     subprocess.run(command + ['--oformat=binary', '-o', str(binary)], check=True, capture_output=True)

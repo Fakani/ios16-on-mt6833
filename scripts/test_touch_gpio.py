@@ -38,11 +38,12 @@ class GpioTests(unittest.TestCase):
         from make_touch_gate_images import compile_diagnostic
         with tempfile.TemporaryDirectory() as tmp:
             data,entry,hook=compile_diagnostic(0,Path(tmp),big_font=1,gpio_probe=1)
-            self.assertEqual(entry,0x400a0000)
+            self.assertGreaterEqual(entry,0x400a0000)
+            self.assertLess(entry,0x400a4000)
             self.assertLess(len(data),0x4000)
             self.assertIn(b'v76 GPIO - BIG',data)
             self.assertIn(b'BB bitsteps ',data)
-            self.assertEqual(data[hook-entry:hook-entry+4],bytes.fromhex('93c25fb8'))
+            self.assertEqual(data[hook-0x400a0000:hook-0x400a0000+4],bytes.fromhex('93c25fb8'))
 
 
 if __name__ == '__main__':
