@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create two controlled gate diagnostics from the audited v69 baseline.
+"""Build controlled SPI/GPIO diagnostics from the audited v69 baseline.
 
 G0 only observes the original ACK2 transaction; G1 differs in clearing SPI
 PDN bit23. Never enables kernel touch, downloads firmware, or contacts a device.
@@ -31,14 +31,15 @@ def branch(source, target, link=False):
     return struct.pack('<I', (0x94000000 if link else 0x14000000) | ((delta // 4) & 0x3ffffff))
 
 
-def compile_diagnostic(gate, tmp, big_font=0, ice_probe=0, finish_ie=0, reset_readback=0):
+def compile_diagnostic(gate, tmp, big_font=0, ice_probe=0, finish_ie=0, reset_readback=0, gpio_probe=0):
     obj, capture, script, elf, binary = [tmp / x for x in ('diag.o', 'capture.o', 'link.ld', 'diag.elf', 'diag.bin')]
     common = ['clang', '--target=aarch64-linux-gnu', '-ffreestanding', '-nostdlib',
               '-fno-builtin', '-mgeneral-regs-only', '-mstrict-align', '-Oz', '-Wall', '-Wextra', '-Werror',
               '-DSPI_IRQ_ENABLE=' + str(finish_ie), '-DSPI_RESET_READBACK=' + str(reset_readback)]
+    diagnostic_source = 'touch-gpio-probe.c' if gpio_probe else 'touch-gate-diagnostic.c'
     subprocess.run(common + ['-DGATE_FIX=' + str(gate), '-DBIG_FONT=' + str(big_font),
                              '-DICE_PROBE=' + str(ice_probe), '-c',
-                             str(HERE.parent / 'include/touch-gate-diagnostic.c'), '-o', str(obj)],
+                             str(HERE.parent / 'include' / diagnostic_source), '-o', str(obj)],
                    check=True, capture_output=True)
     extras = []
     if ice_probe:
@@ -68,6 +69,11 @@ SECTIONS {
     shoff = struct.unpack_from('<Q', image, 40)[0]
     shentsize, shnum = struct.unpack_from('<HH', image, 58)
     sections = [struct.unpack_from('<IIQQQQIIQQ', image, shoff + n * shentsize) for n in range(shnum)]
+    for section in sections:
+        if section[2] & 2 and section[5]:  # SHF_ALLOC, including zero-filled .bss
+            require(BASE + INJECTION <= section[3] and
+                    section[3] + section[5] <= BASE + INJECTION_LIMIT,
+                    'allocated diagnostic section exceeds reserved slot')
     symbols = {}
     for sec in sections:
         if sec[1] != 2:
@@ -110,7 +116,9 @@ def repack(baseline, blob):
     return bytes(out)
 
 
-def build_diagnostic(baseline, gate, big_font=0, ice_probe=0, finish_ie=0, reset_readback=0):
+def build_diagnostic(baseline, gate, big_font=0, ice_probe=0, finish_ie=0, reset_readback=0, gpio_probe=0):
+    require(not gpio_probe or (big_font and not any((gate, ice_probe, finish_ie, reset_readback))),
+            'GPIO diagnostic requires big font and excludes gate/PIO changes')
     require(not finish_ie or ice_probe, 'finish IE requires the isolated ICE probe')
     require(not ice_probe or big_font, 'ICE probe requires big-font reporting')
     require(sha256(baseline) == BASE_SHA256, 'baseline hash mismatch')
@@ -126,19 +134,21 @@ def build_diagnostic(baseline, gate, big_font=0, ice_probe=0, finish_ie=0, reset
     require(bss_end < BASE + INJECTION, 'injection overlaps runtime BSS')
     require(not any(blob[INJECTION:INJECTION_LIMIT]), 'injection slot is not empty')
     with tempfile.TemporaryDirectory() as tmp:
-        payload, entry, capture = compile_diagnostic(gate, Path(tmp), big_font, ice_probe, finish_ie, reset_readback)
+        payload, entry, capture = compile_diagnostic(gate, Path(tmp), big_font, ice_probe, finish_ie, reset_readback, gpio_probe)
     blob[INJECTION:INJECTION + len(payload)] = payload
     blob[CALL:CALL + 4] = branch(BASE + CALL, entry, link=True)
     blob[CAPTURE:CAPTURE + 4] = branch(BASE + CAPTURE, capture)
     result = repack(baseline, bytes(blob))
     manifest = {'gate_fix': gate, 'big_font': big_font, 'ice_probe': ice_probe, 'finish_ie': finish_ie,
-                'reset_readback': reset_readback,
+                'reset_readback': reset_readback, 'gpio_probe': gpio_probe,
                 'output_sha256': sha256(result), 'image_bytes': len(result),
                 'injection_offset': hex(INJECTION), 'injection_bytes': len(payload),
                 'entry': hex(entry), 'capture_rx': hex(capture),
                 'bss_bounds': [hex(bss_start), hex(bss_end)],
                 'android_xnu_tail_identical': True, 'touchscreen': 0,
                 'capture_extra_fifo_reads': 0, 'max_ice_transactions': 8 if ice_probe else 0,
+                'max_gpio_frames': 9 if gpio_probe else 0,
+                'gpio_pins': [12, 13, 97, 98] if gpio_probe else [],
                 'hardware_result': 'NOT TESTED'}
     return result, manifest
 
@@ -152,10 +162,11 @@ def main():
     p.add_argument('--ice-probe', action='store_true')
     p.add_argument('--finish-ie', action='store_true')
     p.add_argument('--reset-readback', action='store_true')
+    p.add_argument('--gpio-probe', action='store_true')
     a = p.parse_args()
     manifest_path = a.output.with_suffix('.manifest.json')
     require(not a.output.exists() and not manifest_path.exists(), 'output exists')
-    result, manifest = build_diagnostic(a.baseline.read_bytes(), a.gate_fix, int(a.big_font), int(a.ice_probe), int(a.finish_ie), int(a.reset_readback))
+    result, manifest = build_diagnostic(a.baseline.read_bytes(), a.gate_fix, int(a.big_font), int(a.ice_probe), int(a.finish_ie), int(a.reset_readback), int(a.gpio_probe))
     a.output.write_bytes(result)
     manifest_path.write_text(json.dumps(manifest, indent=2) + '\n')
     print(json.dumps(manifest, indent=2))
