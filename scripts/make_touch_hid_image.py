@@ -20,7 +20,10 @@ THREAD=0xfffffff0074e2afc
 WINDOW=0x12a8
 SYMBOLS={'_touch_thread':THREAD,'_spi_msg':THREAD+WINDOW,
  '_printf':0xfffffff0072f5b90,'_delay':0xfffffff0072cbc08,
- '_ml_io_map':0xfffffff007447dbc,'_hakios_touch_post':0xfffffff0074a4c20}
+ '_ml_io_map':0xfffffff007447dbc,'_hakios_touch_post':0xfffffff0074a4c20,
+ '_clock_interval_to_absolutetime_interval':0xfffffff00744d4a8,
+ '_mach_absolute_time':0xfffffff00744cfbc,'_ml_delay_should_spin':0xfffffff0074492cc,
+ '_get_preemption_level':0xfffffff00743e2a0,'_ml_get_interrupts_enabled':0xfffffff007446ca8}
 HERE=Path(__file__).resolve().parent
 
 
@@ -62,10 +65,12 @@ def locate_thread(blob):
     raise ValueError('thread not inside one file-backed segment')
 
 
-def compile_thread(tmp):
+def compile_thread(tmp,counter_wait=0,timing_log=0):
+    require(not counter_wait or timing_log,'counter wait requires calibration/profile')
     obj,ld,elf,binary=[tmp/x for x in ('thread.o','link.ld','thread.elf','thread.bin')]
     command=['clang','--target=aarch64-linux-gnu','-ffreestanding','-nostdlib','-fno-builtin',
              '-mgeneral-regs-only','-mstrict-align','-fno-stack-protector','-fno-omit-frame-pointer',
+             '-DTOUCH_COUNTER_WAIT='+str(counter_wait),'-DTOUCH_TIMING_LOG='+str(timing_log),
              '-Oz','-Wall','-Wextra','-Werror','-c',str(HERE.parent/'include/touch-kernel-thread.c'),'-o',str(obj)]
     subprocess.run(command,check=True,capture_output=True)
     ld.write_text('''ENTRY(touch_thread_entry)
@@ -79,7 +84,12 @@ SECTIONS {
     definitions=['--defsym=kernel_map='+hex(SYMBOLS['_ml_io_map']),
                  '--defsym=kernel_delay='+hex(SYMBOLS['_delay']),
                  '--defsym=kernel_printf='+hex(SYMBOLS['_printf']),
-                 '--defsym=kernel_post='+hex(SYMBOLS['_hakios_touch_post'])]
+                 '--defsym=kernel_post='+hex(SYMBOLS['_hakios_touch_post']),
+                 '--defsym=kernel_time='+hex(SYMBOLS['_mach_absolute_time']),
+                 '--defsym=kernel_interval='+hex(SYMBOLS['_clock_interval_to_absolutetime_interval']),
+                 '--defsym=kernel_spin_decision='+hex(SYMBOLS['_ml_delay_should_spin']),
+                 '--defsym=kernel_preempt_level='+hex(SYMBOLS['_get_preemption_level']),
+                 '--defsym=kernel_irq_enabled='+hex(SYMBOLS['_ml_get_interrupts_enabled'])]
     base=['ld.lld','-T',str(ld)]+definitions+[str(obj)]
     subprocess.run(base+['-o',str(elf)],check=True,capture_output=True)
     subprocess.run(base+['--oformat=binary','-o',str(binary)],check=True,capture_output=True)
@@ -94,11 +104,11 @@ SECTIONS {
     return code
 
 
-def build_hid_image(baseline):
+def build_hid_image(baseline,counter_wait=0,timing_log=0):
     require(sha256(baseline)==BASE_SHA,'input must be tested v78-FW-BIG image')
     _,parts,_,_=parse_image(baseline);blob=bytearray(gzip.decompress(parts[0]));old=bytes(blob)
     position=locate_thread(blob)
-    with tempfile.TemporaryDirectory() as tmp:code=compile_thread(Path(tmp))
+    with tempfile.TemporaryDirectory() as tmp:code=compile_thread(Path(tmp),counter_wait,timing_log)
     padded=code+bytes((-len(code))%4)
     require(len(padded)<=WINDOW,'aligned code too large')
     blob[position:position+WINDOW]=padded+bytes.fromhex('1f2003d5')*((WINDOW-len(padded))//4)
@@ -116,15 +126,18 @@ def build_hid_image(baseline):
               'verified_firmware_loader_preserved':True,'reset_gpio15_in_new_thread':False,
               'new_thread_host_download':False,'packet_id':'0x5b','packet_bytes':72,
               'checksum':'sum(all 72 bytes) modulo 256 == 0','coordinate_limits':[4320,9600],
+              'counter_wait':bool(counter_wait),'timing_log':bool(timing_log),
+              'nominal_half_period_us':10,'idle_delay_us':1000,
               'hardware_result':'NOT TESTED'}
     return result,manifest
 
 
 def main():
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('baseline',type=Path);p.add_argument('output',type=Path)
+    p.add_argument('--counter-wait',action='store_true');p.add_argument('--timing-log',action='store_true')
     a=p.parse_args();manifest_path=a.output.with_suffix('.manifest.json')
     require(not a.output.exists() and not manifest_path.exists(),'output exists')
-    result,manifest=build_hid_image(a.baseline.read_bytes());a.output.write_bytes(result)
+    result,manifest=build_hid_image(a.baseline.read_bytes(),int(a.counter_wait),int(a.timing_log));a.output.write_bytes(result)
     manifest_path.write_text(json.dumps(manifest,indent=2)+'\n');print(json.dumps(manifest,indent=2))
 
 
