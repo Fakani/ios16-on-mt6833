@@ -6,7 +6,7 @@ extern void touch_thread_entry(void *,int);
 static uint32_t regs[256];static unsigned frame,bits,miso,scenario,event_count,message_count;
 static uint64_t fake_ticks;static unsigned short_delays,time_calls,interval_calls;
 uint64_t kernel_time(void){time_calls++;fake_ticks+=13;return fake_ticks;}
-void kernel_interval(uint32_t interval,uint32_t scale,uint64_t *ticks){assert(scale==1000&&(interval==1||interval==10));interval_calls++;*ticks=scenario==3?0:(uint64_t)interval*13;}
+void kernel_interval(uint32_t interval,uint32_t scale,uint64_t *ticks){assert(scale==1000&&(interval==1||interval==2||interval==10));interval_calls++;*ticks=scenario==3?0:(uint64_t)interval*13;}
 int kernel_spin_decision(uint64_t ticks){(void)ticks;return 0;}
 int kernel_preempt_level(void){return 0;}
 int kernel_irq_enabled(void){return 1;}
@@ -24,7 +24,7 @@ static void packet(void){
  if(scenario==1&&frame==1)payload[71]^=1;
 }
 uint64_t kernel_map(uint64_t a,uint64_t n){assert(n==0x1000&&(a==0x10005000u||a==0x11e60000u||a==0x11e20000u));return a;}
-void kernel_delay(uint32_t us){assert(us==10||us==1000);if(us==10)short_delays++;fake_ticks+=(uint64_t)us*13;}
+void kernel_delay(uint32_t us){assert(us==2||us==10||us==1000);if(us==2||us==10)short_delays++;fake_ticks+=(uint64_t)us*13;}
 int kernel_printf(const char *s,...){assert(!strchr(s,'%'));message_count++;return 0;}
 void kernel_post(uint32_t t,uint32_t f,uint32_t x,uint32_t y){assert(event_count<16);events[event_count][0]=t;events[event_count][1]=f;events[event_count][2]=x;events[event_count++][3]=y;}
 uint32_t kernel_reg_read(uint64_t a){

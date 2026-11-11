@@ -33,9 +33,10 @@ class HidTests(unittest.TestCase):
     def test_kernel_gpio_transport_and_api_contract(self):
         with tempfile.TemporaryDirectory() as tmp:
             out=Path(tmp)/'kernel-peer'
-            for counter,profile in ((0,0),(0,1),(1,1)):
+            for counter,profile,half in ((0,0,10),(0,1,10),(1,1,10),(1,1,2)):
                 subprocess.run(['clang','-std=c11','-Wall','-Wextra','-Werror','-DTOUCH_KERNEL_HOST',
                                 '-DTOUCH_COUNTER_WAIT='+str(counter),'-DTOUCH_TIMING_LOG='+str(profile),
+                                '-DTOUCH_HALF_PERIOD_US='+str(half),
                                 '-I'+str(HERE.parent/'include'),str(HERE.parent/'include/touch-kernel-thread.c'),
                                 str(HERE.parent/'tests/kernel_gpio_peer.c'),'-o',str(out)],check=True,capture_output=True)
                 subprocess.run([str(out)],check=True,capture_output=True)
@@ -49,6 +50,15 @@ class HidTests(unittest.TestCase):
         self.assertTrue(m['counter_wait'] and m['timing_log'])
         self.assertEqual(m['idle_delay_us'],1000);self.assertEqual(m['nominal_half_period_us'],10)
         self.assertEqual(sha256(working),'f9f626032c96a7fb145e89137688b1ef812f36f88fdcaceb905466e9cc1372e1')
+
+    @unittest.skipUnless(BASELINE.exists() and shutil.which('clang') and shutil.which('ld.lld'),'local baseline and ARM64 tools required')
+    def test_faster_clock_preserves_every_other_component(self):
+        base=BASELINE.read_bytes();control,_=build_hid_image(base,1,1,10);fast,m=build_hid_image(base,1,1,2)
+        _,pa,_,_=parse_image(control);_,pb,_,_=parse_image(fast)
+        a,b=gzip.decompress(pa[0]),gzip.decompress(pb[0]);pos=0x36c9b1c
+        self.assertEqual(a[:pos],b[:pos]);self.assertEqual(a[pos+WINDOW:],b[pos+WINDOW:])
+        self.assertEqual(m['nominal_half_period_us'],2)
+        self.assertEqual(sha256(control),'4b0d3f6a5ae56ca6a168ebebe9cd1a53b2c1a261c75ac2dcf14aac7871d49c76')
 
     def test_unexpected_image_rejected(self):
         with self.assertRaises(ValueError):build_hid_image(b'not tested v78')

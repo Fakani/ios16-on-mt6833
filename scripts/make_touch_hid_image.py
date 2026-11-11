@@ -65,12 +65,15 @@ def locate_thread(blob):
     raise ValueError('thread not inside one file-backed segment')
 
 
-def compile_thread(tmp,counter_wait=0,timing_log=0):
+def compile_thread(tmp,counter_wait=0,timing_log=0,half_period_us=10):
+    require(half_period_us in (2,10),'unsupported half period')
+    require(half_period_us==10 or counter_wait,'faster clock requires calibrated counter wait')
     require(not counter_wait or timing_log,'counter wait requires calibration/profile')
     obj,ld,elf,binary=[tmp/x for x in ('thread.o','link.ld','thread.elf','thread.bin')]
     command=['clang','--target=aarch64-linux-gnu','-ffreestanding','-nostdlib','-fno-builtin',
              '-mgeneral-regs-only','-mstrict-align','-fno-stack-protector','-fno-omit-frame-pointer',
              '-DTOUCH_COUNTER_WAIT='+str(counter_wait),'-DTOUCH_TIMING_LOG='+str(timing_log),
+             '-DTOUCH_HALF_PERIOD_US='+str(half_period_us),
              '-Oz','-Wall','-Wextra','-Werror','-c',str(HERE.parent/'include/touch-kernel-thread.c'),'-o',str(obj)]
     subprocess.run(command,check=True,capture_output=True)
     ld.write_text('''ENTRY(touch_thread_entry)
@@ -104,11 +107,11 @@ SECTIONS {
     return code
 
 
-def build_hid_image(baseline,counter_wait=0,timing_log=0):
+def build_hid_image(baseline,counter_wait=0,timing_log=0,half_period_us=10):
     require(sha256(baseline)==BASE_SHA,'input must be tested v78-FW-BIG image')
     _,parts,_,_=parse_image(baseline);blob=bytearray(gzip.decompress(parts[0]));old=bytes(blob)
     position=locate_thread(blob)
-    with tempfile.TemporaryDirectory() as tmp:code=compile_thread(Path(tmp),counter_wait,timing_log)
+    with tempfile.TemporaryDirectory() as tmp:code=compile_thread(Path(tmp),counter_wait,timing_log,half_period_us)
     padded=code+bytes((-len(code))%4)
     require(len(padded)<=WINDOW,'aligned code too large')
     blob[position:position+WINDOW]=padded+bytes.fromhex('1f2003d5')*((WINDOW-len(padded))//4)
@@ -127,7 +130,7 @@ def build_hid_image(baseline,counter_wait=0,timing_log=0):
               'new_thread_host_download':False,'packet_id':'0x5b','packet_bytes':72,
               'checksum':'sum(all 72 bytes) modulo 256 == 0','coordinate_limits':[4320,9600],
               'counter_wait':bool(counter_wait),'timing_log':bool(timing_log),
-              'nominal_half_period_us':10,'idle_delay_us':1000,
+              'nominal_half_period_us':half_period_us,'idle_delay_us':1000,
               'hardware_result':'NOT TESTED'}
     return result,manifest
 
@@ -135,9 +138,10 @@ def build_hid_image(baseline,counter_wait=0,timing_log=0):
 def main():
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('baseline',type=Path);p.add_argument('output',type=Path)
     p.add_argument('--counter-wait',action='store_true');p.add_argument('--timing-log',action='store_true')
+    p.add_argument('--half-period-us',type=int,choices=(2,10),default=10)
     a=p.parse_args();manifest_path=a.output.with_suffix('.manifest.json')
     require(not a.output.exists() and not manifest_path.exists(),'output exists')
-    result,manifest=build_hid_image(a.baseline.read_bytes(),int(a.counter_wait),int(a.timing_log));a.output.write_bytes(result)
+    result,manifest=build_hid_image(a.baseline.read_bytes(),int(a.counter_wait),int(a.timing_log),a.half_period_us);a.output.write_bytes(result)
     manifest_path.write_text(json.dumps(manifest,indent=2)+'\n');print(json.dumps(manifest,indent=2))
 
 

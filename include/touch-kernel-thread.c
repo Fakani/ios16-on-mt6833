@@ -3,6 +3,12 @@
  * Uses only stack state; no writable data is placed in executable text.
  */
 #include <stdint.h>
+#ifndef TOUCH_HALF_PERIOD_US
+#define TOUCH_HALF_PERIOD_US 10
+#endif
+#if TOUCH_HALF_PERIOD_US != 10 && TOUCH_HALF_PERIOD_US != 2
+#error Unsupported tested half period
+#endif
 #ifndef TOUCH_COUNTER_WAIT
 #define TOUCH_COUNTER_WAIT 0
 #endif
@@ -36,8 +42,8 @@ static char *append_text(char *p,const char *s){while(*s)*p++=*s++;return p;}
 static char *append_number(char *p,uint64_t value){char digits[20];unsigned n=0;do{digits[n++]='0'+value%10;value/=10;}while(value);while(n)*p++=digits[--n];return p;}
 static void log_context(struct gpio_bus *b)
 {
- char line[160],*p=line;p=append_text(p,"ili_gpio: timing ticks10=");p=append_number(p,b->half_ticks);
- p=append_text(p," spin10=");p=append_number(p,(uint32_t)kernel_spin_decision(b->half_ticks));
+ char line[160],*p=line;p=append_text(p,TOUCH_HALF_PERIOD_US==10?"ili_gpio: timing ticks10=":"ili_gpio: timing ticks2=");p=append_number(p,b->half_ticks);
+ p=append_text(p,TOUCH_HALF_PERIOD_US==10?" spin10=":" spin2=");p=append_number(p,(uint32_t)kernel_spin_decision(b->half_ticks));
  p=append_text(p," irq=");p=append_number(p,(uint32_t)kernel_irq_enabled());
  p=append_text(p," preempt=");p=append_number(p,(uint32_t)kernel_preempt_level());
  p=append_text(p,TOUCH_COUNTER_WAIT?" counter=1\n":" counter=0\n");*p=0;kernel_printf(line);
@@ -71,14 +77,14 @@ static void mode(struct gpio_bus *b,unsigned pin)
 #if TOUCH_COUNTER_WAIT
 static void half_wait(struct gpio_bus *b)
 {
- if(!b->half_ticks){kernel_delay(10);return;}
+ if(!b->half_ticks){kernel_delay(TOUCH_HALF_PERIOD_US);return;}
  uint64_t start=kernel_time();
  for(unsigned spin=0;spin<65536;spin++)if(kernel_time()-start>=b->half_ticks)return;
- kernel_delay(10); /* preserve the old path if the counter stops advancing */
+ kernel_delay(TOUCH_HALF_PERIOD_US); /* fallback if the counter stops advancing */
 }
 #define HALF_WAIT(bus) half_wait(bus)
 #else
-#define HALF_WAIT(bus) kernel_delay(10)
+#define HALF_WAIT(bus) kernel_delay(TOUCH_HALF_PERIOD_US)
 #endif
 static void read_report(struct gpio_bus *b,uint8_t *rx)
 {
@@ -98,7 +104,7 @@ void touch_thread_entry(void *argument,int result)
  struct gpio_bus b;struct ilitek_track track;uint8_t rx[75];
 #if TOUCH_TIMING_LOG
  struct touch_timing timing;timing.total=timing.max=timing.reads=timing.ack_bad=0;
- kernel_interval(10,1000,&b.half_ticks);kernel_interval(1,1000,&b.ticks_per_us);
+ kernel_interval(TOUCH_HALF_PERIOD_US,1000,&b.half_ticks);kernel_interval(1,1000,&b.ticks_per_us);
 #endif
  for(unsigned i=0;i<10;i++){track.down[i]=0;track.x[i]=track.y[i]=0;}track.reports=track.bad=track.events=0;
  b.gpio=kernel_map(0x10005000u,0x1000);b.mi=kernel_map(0x11e60000u,0x1000);b.irq=kernel_map(0x11e20000u,0x1000);
